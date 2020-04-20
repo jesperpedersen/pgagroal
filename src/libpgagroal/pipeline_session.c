@@ -212,7 +212,14 @@ session_client(struct ev_loop *loop, struct ev_io *watcher, int revents)
    {
       if (likely(msg->kind != 'X'))
       {
-         status = pgagroal_write_socket_message(wi->server_fd, msg);
+         if (wi->server_ssl == NULL)
+         {
+            status = pgagroal_write_socket_message(wi->server_fd, msg);
+         }
+         else
+         {
+            status = pgagroal_write_ssl_message(wi->server_ssl, msg);
+         }
          if (unlikely(status != MESSAGE_STATUS_OK))
          {
             goto server_error;
@@ -267,7 +274,15 @@ session_server(struct ev_loop *loop, struct ev_io *watcher, int revents)
 
    client_active(wi->slot, wi->pipeline_shmem);
 
-   status = pgagroal_read_socket_message(wi->server_fd, &msg);
+   if (wi->server_ssl == NULL)
+   {
+      status = pgagroal_read_socket_message(wi->server_fd, &msg);
+   }
+   else
+   {
+      status = pgagroal_read_ssl_message(wi->server_ssl, &msg);
+   }
+
    if (likely(status == MESSAGE_STATUS_OK))
    {
       if (wi->client_ssl == NULL)

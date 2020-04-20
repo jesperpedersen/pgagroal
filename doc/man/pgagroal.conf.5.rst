@@ -130,6 +130,19 @@ port
 primary
   Identify the instance as the primary instance (hint)
 
+tls
+  Enable Transport Layer Security (TLS). Default is false
+
+tls_cert_file
+  Certificate file for TLS
+
+tls_key_file
+  Private key file for TLS
+
+tls_ca_file
+  Certificate Authority (CA) file for TLS
+
+
 REPORTING BUGS
 ==============
 

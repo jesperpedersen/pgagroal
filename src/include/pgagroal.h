@@ -53,9 +53,10 @@ extern "C" {
 #define ZF_LOG_LEVEL ZF_LOG_DEBUG
 #endif
 
-#define MAX_BUFFER_SIZE      65535
-#define DEFAULT_BUFFER_SIZE  65535
-#define SECURITY_BUFFER_SIZE   512
+#define MAX_BUFFER_SIZE         65535
+#define DEFAULT_BUFFER_SIZE     65535
+#define SECURITY_BUFFER_SIZE      512
+#define SSL_SESSION_BUFFER_SIZE  1024
 
 #define MAX_USERNAME_LENGTH  128
 #define MAX_DATABASE_LENGTH  256
@@ -133,10 +134,14 @@ extern "C" {
  */
 struct server
 {
-   char name[MISC_LENGTH]; /**< The name of the server */
-   char host[MISC_LENGTH]; /**< The host name of the server */
-   int port;               /**< The port of the server */
-   int primary;            /**< The status of the server */
+   char name[MISC_LENGTH];          /**< The name of the server */
+   char host[MISC_LENGTH];          /**< The host name of the server */
+   int port;                        /**< The port of the server */
+   int primary;                     /**< The status of the server */
+   bool tls;                        /**< Is TLS enabled */
+   char tls_cert_file[MISC_LENGTH]; /**< TLS certificate path */
+   char tls_key_file[MISC_LENGTH];  /**< TLS key path */
+   char tls_ca_file[MISC_LENGTH];   /**< TLS CA certificate path */
 } __attribute__ ((aligned (64)));
 
 /** @struct
@@ -153,6 +158,9 @@ struct connection
    signed char has_security;                                                  /**< The security identifier */
    ssize_t security_lengths[NUMBER_OF_SECURITY_MESSAGES];                     /**< The lengths of the security messages */
    char security_messages[NUMBER_OF_SECURITY_MESSAGES][SECURITY_BUFFER_SIZE]; /**< The security messages */
+
+   int ssl_session_length;                      /**< The length of the SSL session */
+   char ssl_session[SSL_SESSION_BUFFER_SIZE];   /**< The SSL session (ASN.1) */
 
    signed char limit_rule; /**< The limit rule used */
    time_t timestamp;       /**< The last used timestamp */

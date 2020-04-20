@@ -69,6 +69,7 @@ pgagroal_worker(int client_fd, char* address, void* shmem, void* pipeline_shmem)
    struct pipeline p;
    int32_t slot = -1;
    SSL* client_ssl = NULL;
+   SSL* server_ssl = NULL;
 
    pgagroal_start_logging(shmem);
    pgagroal_memory_init(shmem);
@@ -81,7 +82,7 @@ pgagroal_worker(int client_fd, char* address, void* shmem, void* pipeline_shmem)
    start_time = time(NULL);
 
    /* Authentication */
-   auth_status = pgagroal_authenticate(client_fd, address, shmem, &slot, &client_ssl);
+   auth_status = pgagroal_authenticate(client_fd, address, shmem, &slot, &client_ssl, &server_ssl);
    if (auth_status == AUTH_SUCCESS)
    {
       ZF_LOGD("pgagroal_worker: Slot %d (%d -> %d)", slot, client_fd, config->connections[slot].fd);
@@ -134,6 +135,7 @@ pgagroal_worker(int client_fd, char* address, void* shmem, void* pipeline_shmem)
       client_io.server_fd = config->connections[slot].fd;
       client_io.slot = slot;
       client_io.client_ssl = client_ssl;
+      client_io.server_ssl = server_ssl;
       client_io.shmem = shmem;
       client_io.pipeline_shmem = pipeline_shmem;
       
@@ -142,6 +144,7 @@ pgagroal_worker(int client_fd, char* address, void* shmem, void* pipeline_shmem)
       server_io.server_fd = config->connections[slot].fd;
       server_io.slot = slot;
       server_io.client_ssl = client_ssl;
+      server_io.server_ssl = server_ssl;
       server_io.shmem = shmem;
       server_io.pipeline_shmem = pipeline_shmem;
       
@@ -198,7 +201,7 @@ pgagroal_worker(int client_fd, char* address, void* shmem, void* pipeline_shmem)
           (exit_code == WORKER_SUCCESS || exit_code == WORKER_CLIENT_FAILURE ||
            (exit_code == WORKER_FAILURE && config->connections[slot].has_security != SECURITY_INVALID)))
       {
-         pgagroal_return_connection(shmem, slot);
+         pgagroal_return_connection(shmem, slot, server_ssl);
       }
       else if (exit_code == WORKER_SERVER_FAILURE || exit_code == WORKER_SERVER_FATAL || exit_code == WORKER_SHUTDOWN ||
                (exit_code == WORKER_FAILURE && config->connections[slot].has_security == SECURITY_INVALID))
@@ -211,11 +214,11 @@ pgagroal_worker(int client_fd, char* address, void* shmem, void* pipeline_shmem)
              pgagroal_connection_isvalid(config->connections[slot].fd) &&
              config->connections[slot].has_security != SECURITY_INVALID)
          {
-            pgagroal_return_connection(shmem, slot);
+            pgagroal_return_connection(shmem, slot, server_ssl);
          }
          else
          {
-            pgagroal_kill_connection(shmem, slot);
+            pgagroal_kill_connection(shmem, slot, server_ssl);
          }
       }
    }

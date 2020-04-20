@@ -299,6 +299,10 @@ pgagroal_read_configuration(char* filename, void* shmem)
                   {
                      config->tls = as_bool(value);
                   }
+                  else if (strlen(section) > 0)
+                  {
+                     srv.tls = as_bool(value);
+                  }
                   else
                   {
                      unknown = true;
@@ -312,6 +316,17 @@ pgagroal_read_configuration(char* filename, void* shmem)
                      if (max > MISC_LENGTH - 1)
                         max = MISC_LENGTH - 1;
                      memcpy(config->tls_ca_file, value, max);
+                  }
+                  else if (strlen(section) > 0)
+                  {
+                     max = strlen(section);
+                     if (max > MISC_LENGTH - 1)
+                        max = MISC_LENGTH - 1;
+                     memcpy(&srv.name, section, max);
+                     max = strlen(value);
+                     if (max > MISC_LENGTH - 1)
+                        max = MISC_LENGTH - 1;
+                     memcpy(&srv.tls_ca_file, value, max);
                   }
                   else
                   {
@@ -327,6 +342,17 @@ pgagroal_read_configuration(char* filename, void* shmem)
                         max = MISC_LENGTH - 1;
                      memcpy(config->tls_cert_file, value, max);
                   }
+                  else if (strlen(section) > 0)
+                  {
+                     max = strlen(section);
+                     if (max > MISC_LENGTH - 1)
+                        max = MISC_LENGTH - 1;
+                     memcpy(&srv.name, section, max);
+                     max = strlen(value);
+                     if (max > MISC_LENGTH - 1)
+                        max = MISC_LENGTH - 1;
+                     memcpy(&srv.tls_cert_file, value, max);
+                  }
                   else
                   {
                      unknown = true;
@@ -340,6 +366,17 @@ pgagroal_read_configuration(char* filename, void* shmem)
                      if (max > MISC_LENGTH - 1)
                         max = MISC_LENGTH - 1;
                      memcpy(config->tls_key_file, value, max);
+                  }
+                  else if (strlen(section) > 0)
+                  {
+                     max = strlen(section);
+                     if (max > MISC_LENGTH - 1)
+                        max = MISC_LENGTH - 1;
+                     memcpy(&srv.name, section, max);
+                     max = strlen(value);
+                     if (max > MISC_LENGTH - 1)
+                        max = MISC_LENGTH - 1;
+                     memcpy(&srv.tls_key_file, value, max);
                   }
                   else
                   {
@@ -691,6 +728,11 @@ pgagroal_validate_configuration(void* shmem)
       {
          ZF_LOGF("pgagroal: No port defined for %s", config->servers[i].name);
          return 1;
+      }
+
+      if (config->servers[i].tls && (strlen(config->servers[i].tls_cert_file) > 0 || strlen(config->servers[i].tls_key_file) > 0))
+      {
+         tls = true;
       }
    }
 

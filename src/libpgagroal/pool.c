@@ -57,7 +57,7 @@ static void connection_details(void* shmem, int slot);
 static bool do_prefill(void* shmem, char* username, char* database, int size);
 
 int
-pgagroal_get_connection(void* shmem, char* username, char* database, bool reuse, int* slot)
+pgagroal_get_connection(void* shmem, char* username, char* database, bool reuse, int* slot, SSL** ssl)
 {
    bool prefill;
    bool do_init;
@@ -85,6 +85,7 @@ pgagroal_get_connection(void* shmem, char* username, char* database, bool reuse,
 start:
 
    *slot = -1;
+   *ssl = NULL;
    do_init = false;
    has_lock = false;
 
@@ -183,11 +184,17 @@ start:
       }
       else
       {
+         SSL* s = NULL;
          bool kill = false;
 
          config->connections[*slot].limit_rule = best_rule;
          config->connections[*slot].pid = getpid();
          config->connections[*slot].timestamp = time(NULL);
+
+         if (pgagroal_load_tls_connection(*slot, shmem, &s))
+         {
+            kill = true;
+         }
 
          /* Verify the socket for the slot */
          if (!pgagroal_socket_isvalid(config->connections[*slot].fd))
@@ -197,7 +204,7 @@ start:
 
          if (!kill && config->validation == VALIDATION_FOREGROUND)
          {
-            kill = !pgagroal_connection_isvalid(config->connections[*slot].fd);
+            kill = !pgagroal_connection_isvalid(config->connections[*slot].fd); /* TODO */
          }
 
          if (kill)
@@ -205,7 +212,8 @@ start:
             int status;
 
             ZF_LOGD("pgagroal_get_connection: Slot %d FD %d - Error", *slot, config->connections[*slot].fd);
-            status = pgagroal_kill_connection(shmem, *slot);
+            status = pgagroal_kill_connection(shmem, *slot, s);
+            s = NULL;
             prefill = true;
             if (status == 0)
             {
@@ -216,6 +224,8 @@ start:
                goto timeout;
             }
          }
+
+         *ssl = s;
       }
 
       if (prefill)
@@ -291,12 +301,14 @@ error:
 }
 
 int
-pgagroal_return_connection(void* shmem, int slot)
+pgagroal_return_connection(void* shmem, int slot, SSL* ssl)
 {
    int state;
    struct configuration* config;
 
    config = (struct configuration*)shmem;
+
+   ZF_LOGI("pgagroal_return_connection: Slot %d", slot);
 
    /* Verify the socket for the slot */
    if (!pgagroal_socket_isvalid(config->connections[slot].fd))
@@ -316,10 +328,27 @@ pgagroal_return_connection(void* shmem, int slot)
       /* Return the connection, if not GRACEFULLY */
       if (state == STATE_IN_USE)
       {
+         SSL_CTX* ctx;
+
          ZF_LOGD("pgagroal_return_connection: Slot %d FD %d", slot, config->connections[slot].fd);
 
-         pgagroal_write_deallocate_all(NULL, config->connections[slot].fd);
-         pgagroal_write_reset_all(NULL, config->connections[slot].fd);
+         ZF_LOGI("BEFORE CONNECTION RESET: Slot %d", slot);
+         pgagroal_write_deallocate_all(ssl, config->connections[slot].fd);
+         pgagroal_write_reset_all(ssl, config->connections[slot].fd);
+         ZF_LOGI("AFTER CONNECTION RESET: Slot %d", slot);
+
+         if (pgagroal_save_tls_connection(ssl, slot, shmem))
+         {
+            goto kill_connection;
+         }
+
+         /* TODO - SSL_shutdown */
+         if (ssl != NULL)
+         {
+            ctx = SSL_get_SSL_CTX(ssl);
+            SSL_free(ssl);
+            SSL_CTX_free(ctx);
+         }
 
          config->connections[slot].timestamp = time(NULL);
 
@@ -346,21 +375,27 @@ pgagroal_return_connection(void* shmem, int slot)
       }
       else if (state == STATE_GRACEFULLY)
       {
-         pgagroal_write_terminate(NULL, config->connections[slot].fd);
+         pgagroal_write_terminate(ssl, config->connections[slot].fd);
       }
    }
 
-   return pgagroal_kill_connection(shmem, slot);
+kill_connection:
+
+   return pgagroal_kill_connection(shmem, slot, ssl);
 }
 
 int
-pgagroal_kill_connection(void* shmem, int slot)
+pgagroal_kill_connection(void* shmem, int slot, SSL* ssl)
 {
+   SSL_CTX* ctx;
+   int ssl_shutdown;
    int result = 0;
    int fd;
    struct configuration* config;
 
    config = (struct configuration*)shmem;
+
+   ZF_LOGI("pgagroal_kill_connection: Slot %d", slot);
 
    ZF_LOGD("pgagroal_kill_connection: Slot %d FD %d State %d PID %d",
            slot, config->connections[slot].fd, atomic_load(&config->states[slot]),
@@ -370,6 +405,19 @@ pgagroal_kill_connection(void* shmem, int slot)
    if (fd != -1)
    {
       pgagroal_management_kill_connection(shmem, slot, fd);
+
+      if (ssl != NULL)
+      {
+         ctx = SSL_get_SSL_CTX(ssl);
+         ssl_shutdown = SSL_shutdown(ssl);
+         if (ssl_shutdown == 0)
+         {
+            SSL_shutdown(ssl);
+         }
+         SSL_free(ssl);
+         SSL_CTX_free(ctx);
+      }
+
       pgagroal_disconnect(fd);
    }
    else
@@ -440,7 +488,7 @@ pgagroal_idle_timeout(void* shmem)
          if (diff >= (double)config->idle_timeout)
          {
             pgagroal_prometheus_connection_idletimeout(shmem);
-            pgagroal_kill_connection(shmem, i);
+            pgagroal_kill_connection(shmem, i, NULL);
             prefill = true;
          }
          else
@@ -516,7 +564,7 @@ pgagroal_validation(void* shmem)
          if (kill)
          {
             pgagroal_prometheus_connection_invalid(shmem);
-            pgagroal_kill_connection(shmem, i);
+            pgagroal_kill_connection(shmem, i, NULL); /*TODO */
             prefill = true;
          }
          else
@@ -569,7 +617,7 @@ pgagroal_flush(void* shmem, int mode)
             pgagroal_write_terminate(NULL, config->connections[i].fd);
          }
          pgagroal_prometheus_connection_flush(shmem);
-         pgagroal_kill_connection(shmem, i);
+         pgagroal_kill_connection(shmem, i, NULL); /* TODO */
          prefill = true;
       }
       else if (mode == FLUSH_ALL || mode == FLUSH_GRACEFULLY)
@@ -580,7 +628,7 @@ pgagroal_flush(void* shmem, int mode)
             {
                kill(config->connections[i].pid, SIGQUIT);
                pgagroal_prometheus_connection_flush(shmem);
-               pgagroal_kill_connection(shmem, i);
+               pgagroal_kill_connection(shmem, i, NULL); /* TODO */
                prefill = true;
             }
             else if (mode == FLUSH_GRACEFULLY)
@@ -636,6 +684,7 @@ pgagroal_prefill(void* shmem, bool initial)
          if (strcmp("all", config->limits[i].database) && strcmp("all", config->limits[i].username))
          {
             int user = -1;
+            SSL* server_ssl = NULL;
 
             for (int j = 0; j < config->number_of_users && user == -1; j++)
             {
@@ -652,7 +701,7 @@ pgagroal_prefill(void* shmem, bool initial)
                   int32_t slot = -1;
 
                   if (pgagroal_prefill_auth(config->users[user].username, config->users[user].password,
-                                            config->limits[i].database, shmem, &slot) != AUTH_SUCCESS)
+                                            config->limits[i].database, shmem, &slot, &server_ssl) != AUTH_SUCCESS)
                   {
                      ZF_LOGW("Invalid data for user '%s' using limit entry (%d)", config->limits[i].username, i);
 
@@ -662,10 +711,10 @@ pgagroal_prefill(void* shmem, bool initial)
                         {
                            if (pgagroal_socket_isvalid(config->connections[slot].fd))
                            {
-                              pgagroal_write_terminate(NULL, config->connections[slot].fd);
+                              pgagroal_write_terminate(server_ssl, config->connections[slot].fd);
                            }
                         }
-                        pgagroal_kill_connection(shmem, slot);
+                        pgagroal_kill_connection(shmem, slot, server_ssl);
                      }
 
                      break;
@@ -675,7 +724,7 @@ pgagroal_prefill(void* shmem, bool initial)
                   {
                      if (config->connections[slot].has_security != SECURITY_INVALID)
                      {
-                        pgagroal_return_connection(shmem, slot);
+                        pgagroal_return_connection(shmem, slot, server_ssl);
                      }
                      else
                      {
@@ -684,13 +733,15 @@ pgagroal_prefill(void* shmem, bool initial)
                         {
                            if (pgagroal_socket_isvalid(config->connections[slot].fd))
                            {
-                              pgagroal_write_terminate(NULL, config->connections[slot].fd);
+                              pgagroal_write_terminate(server_ssl, config->connections[slot].fd);
                            }
                         }
-                        pgagroal_kill_connection(shmem, slot);
+                        pgagroal_kill_connection(shmem, slot, server_ssl);
                         break;
                      }
                   }
+
+                  server_ssl = NULL;
                }
             }
             else
@@ -864,7 +915,7 @@ remove_connection(void* shmem, char* username, char* database)
          else
          {
             pgagroal_prometheus_connection_remove(shmem);
-            pgagroal_kill_connection(shmem, i);
+            pgagroal_kill_connection(shmem, i, NULL);
          }
 
          return true;
@@ -920,6 +971,9 @@ connection_details(void* shmem, int slot)
             ZF_LOGV_MEM(&connection.security_messages[i], connection.security_lengths[i],
                         "                      Message %p:", (const void *)&connection.security_messages[i]);
          }
+         ZF_LOGV("                      Session length: %d", connection.ssl_session_length);
+         ZF_LOGV_MEM(&connection.ssl_session, connection.ssl_session_length,
+                     "                      Session %p:", (const void *)&connection.ssl_session);
          break;
       case STATE_IN_USE:
          ZF_LOGD("pgagroal_pool_status: State: IN_USE");

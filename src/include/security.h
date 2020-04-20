@@ -46,10 +46,11 @@ extern "C" {
  * @param shmem The shared memory segment
  * @param slot The resulting slot
  * @param client_ssl The client SSL context
+ * @param server_ssl The server SSL context
  * @return 0 upon success, otherwise 1
  */
 int
-pgagroal_authenticate(int client_fd, char* address, void* shmem, int* slot, SSL** client_ssl);
+pgagroal_authenticate(int client_fd, char* address, void* shmem, int* slot, SSL** client_ssl, SSL** server_ssl);
 
 /**
  * Authenticate a prefill connection
@@ -58,10 +59,11 @@ pgagroal_authenticate(int client_fd, char* address, void* shmem, int* slot, SSL*
  * @param database The database
  * @param shmem The shared memory segment
  * @param slot The resulting slot
+ * @param server_ssl The resulting SSL context
  * @return 0 upon success, otherwise 1
  */
 int
-pgagroal_prefill_auth(char* username, char* password, char* database, void* shmem, int* slot);
+pgagroal_prefill_auth(char* username, char* password, char* database, void* shmem, int* slot, SSL** server_ssl);
 
 /**
  * Authenticate a remote management user
@@ -140,6 +142,26 @@ pgagroal_user_known(char* user, void* shmem);
  */
 int
 pgagroal_tls_valid(void* shmem);
+
+/**
+ * Load a SSL connection from a slot
+ * @param slot The slot
+ * @param shmem The shared memory segment
+ * @param ssl The resulting SSL connection (can be NULL)
+ * @return 0 upon success, otherwise 1
+ */
+int
+pgagroal_load_tls_connection(int slot, void* shmem, SSL** ssl);
+
+/**
+ * Save a TLS connection to a slot
+ * @param ssl The SSL connection
+ * @param slot The slot
+ * @param shmem The shared memory segment
+ * @return 0 upon success, otherwise 1
+ */
+int
+pgagroal_save_tls_connection(SSL* ssl, int slot, void* shmem);
 
 #ifdef __cplusplus
 }

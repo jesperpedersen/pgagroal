@@ -71,7 +71,7 @@ pgagroal_get_primary(void* shmem, int* server)
 }
 
 int
-pgagroal_update_server_state(void* shmem, int slot, int socket)
+pgagroal_update_server_state(void* shmem, int slot, int socket, SSL* ssl)
 {
    int status;
    int server;
@@ -96,13 +96,13 @@ pgagroal_update_server_state(void* shmem, int slot, int socket)
    qmsg.length = size;
    qmsg.data = &is_recovery;
 
-   status = pgagroal_write_message(NULL, socket, &qmsg);
+   status = pgagroal_write_message(ssl, socket, &qmsg);
    if (status != MESSAGE_STATUS_OK)
    {
       goto error;
    }
 
-   status = pgagroal_read_block_message(NULL, socket, &tmsg);
+   status = pgagroal_read_block_message(ssl, socket, &tmsg);
    if (status != MESSAGE_STATUS_OK)
    {
       goto error;

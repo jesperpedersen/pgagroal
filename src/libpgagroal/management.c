@@ -258,7 +258,8 @@ pgagroal_management_transfer_connection(void* shmem, int32_t slot)
 error:
    free(cmptr);
    pgagroal_disconnect(fd);
-   pgagroal_kill_connection(shmem, slot);
+   /* TODO */
+   pgagroal_kill_connection(shmem, slot, NULL);
 
    return 1;
 }

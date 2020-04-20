@@ -65,6 +65,10 @@ __Danger zone__
 | host | | String | Yes | The address of the PostgreSQL instance |
 | port | | Int | Yes | The port of the PostgreSQL instance |
 | primary | | Bool | No | Identify the instance as primary (hint) |
+| tls | `off` | Bool | No | Enable Transport Layer Security (TLS) towards PostgreSQL |
+| tls_cert_file | | String | No | Certificate file for TLS |
+| tls_key_file | | String | No | Private key file for TLS |
+| tls_ca_file | | String | No | Certificate Authority (CA) file for TLS |
 
 # pgagroal_hba configuration
 
